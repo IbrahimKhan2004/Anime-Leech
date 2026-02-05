@@ -176,6 +176,17 @@ class DbManager:
             return
         await self._db[name][bot_id].drop()
 
+    async def insert_redirect(self, key, url):
+        if self._err:
+            return
+        await self._db.redirects.insert_one({'_id': key, 'url': url})
+
+    async def get_redirect(self, key):
+        if self._err:
+            return None
+        result = await self._db.redirects.find_one({'_id': key})
+        return result['url'] if result else None
+
 
 if DATABASE_URL:
     try:

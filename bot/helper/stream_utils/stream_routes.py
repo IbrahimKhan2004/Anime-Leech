@@ -9,6 +9,8 @@ from bot import LOGGER
 from bot.helper.ext_utils.exceptions import FIleNotFound, InvalidHash
 from bot.helper.stream_utils.custom_dl import ByteStreamer
 from bot.helper.stream_utils.render_template import render_page
+from bot.helper.ext_utils.db_handler import DbManager
+from bot.helper.ext_utils.url_resolver import resolve_final_url
 
 client_cache = {}
 
@@ -23,6 +25,29 @@ async def root_handler(_):
         LOGGER.error(e, exc_info=True)
         raise web.HTTPInternalServerError(text=str(e))
 
+@routes.get(r'/r/{uuid}', allow_head=True)
+async def redirect_handler(request: web.Request):
+    try:
+        uuid = request.match_info['uuid']
+        # Fetch the original short URL from the database
+        short_url = await DbManager().get_redirect(uuid)
+
+        if not short_url:
+            raise web.HTTPNotFound(text="Invalid or expired link.")
+
+        # Server-side resolution of the short URL to the final destination
+        final_url = await resolve_final_url(short_url)
+
+        # Redirect the user to the final resolved URL
+        raise web.HTTPFound(final_url)
+
+    except web.HTTPFound:
+        raise
+    except web.HTTPNotFound:
+        raise
+    except Exception as e:
+        LOGGER.error(f"Redirect Error: {e}", exc_info=True)
+        raise web.HTTPInternalServerError(text=str(e))
 
 @routes.get(r'/stream/{path:\S+}', allow_head=True)
 async def ddls_handler(request: web.Request):

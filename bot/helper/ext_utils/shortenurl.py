@@ -4,9 +4,12 @@ from random import choice, random, randrange
 from time import sleep
 from urllib.parse import quote
 from urllib3 import disable_warnings
+from uuid import uuid4
+from asyncio import run_coroutine_threadsafe
 
-from bot import config_dict, LOGGER, SHORTENERES, SHORTENER_APIS
+from bot import config_dict, LOGGER, SHORTENERES, SHORTENER_APIS, bot_loop
 from bot.helper.ext_utils.bot_utils import is_premium_user
+from bot.helper.ext_utils.db_handler import DbManager
 
 
 def short_url(longurl, user_id=None, attempt=0):
@@ -40,12 +43,28 @@ def short_url(longurl, user_id=None, attempt=0):
         cget = create_scraper().request
         disable_warnings()
         try:
+            external_short_url = None
             for key in shortener_functions:
                 if key in _shortener:
-                    return shortener_functions[key]()
-            return default_shortener()
+                    external_short_url = shortener_functions[key]()
+                    break
+
+            if not external_short_url:
+                external_short_url = default_shortener()
+
+            # Wrap the external short URL
+            if external_short_url and external_short_url != longurl:
+                unique_id = str(uuid4())
+                # Store the mapping in DB
+                future = run_coroutine_threadsafe(DbManager().insert_redirect(unique_id, external_short_url), bot_loop)
+                future.result()  # Wait for the DB write to complete to avoid race conditions
+                # Return the wrapped URL pointing to our server
+                # Assuming STREAM_BASE_URL is set correctly in config
+                base_url = config_dict['STREAM_BASE_URL'].rstrip('/')
+                return f"{base_url}/r/{unique_id}"
+
+            return longurl
         except Exception as e:
             LOGGER.error(e)
             sleep(1)
     return longurl
-
